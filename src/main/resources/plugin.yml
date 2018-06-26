@@ -1,0 +1,6 @@
+name: ${project.artifactId}
+main: ${project.groupId}.questengine.QuestEngine
+version: ${project.version}
+website: ${project.url}
+description: The core of the MCME quest engine
+author: Dallen
