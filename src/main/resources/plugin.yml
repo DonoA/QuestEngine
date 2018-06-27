@@ -4,3 +4,12 @@ version: ${project.version}
 website: ${project.url}
 description: The core of the MCME quest engine
 author: Dallen
+commands:
+  Quests:
+    description: Core quests command
+    usage: |
+            /Quests join
+            /Quests leave
+            /Quests purge
+            /Quests reload
+            /Quests save
