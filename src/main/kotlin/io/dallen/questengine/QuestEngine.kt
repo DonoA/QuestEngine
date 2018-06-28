@@ -1,8 +1,5 @@
 package io.dallen.questengine
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import net.md_5.bungee.api.ChatColor
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
@@ -13,13 +10,15 @@ class QuestEngine : JavaPlugin() {
 
     companion object {
         var instance: QuestEngine? = null
-        var objectParser: ObjectMapper = ObjectMapper().registerKotlinModule()
         private set
     }
 
     override fun onEnable() {
         this.getCommand("Quests").executor = CommandHandler
         instance = this
+        DataManager.buildFileSystem()
+        DataManager.loadNPCs()
+        DataManager.loadQuests()
     }
 
     object CommandHandler : CommandExecutor {
@@ -48,14 +47,7 @@ class QuestEngine : JavaPlugin() {
                     ChatMenuController.handleClick(player.uniqueId, args[2].toInt())
                 }
                 "dev" -> {
-                    if(args[1] == "menu") {
-                        ChatMenuController.sendMenu(player, ChatMenuController.ChatMenu(listOf(
-                        ChatMenuController.ChatMenuOption("Op1", ChatColor.AQUA),
-                        ChatMenuController.ChatMenuOption("Op2", ChatColor.RED)
-                        ), { id, clicked ->
-                            player.sendMessage("Clicked ${clicked.name}")
-                        }))
-                    }
+                    DataManager.npcsDirectory[args[1].toInt()]!!.startConvo(player)
                 }
                 else -> return false
             }
