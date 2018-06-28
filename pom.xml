@@ -50,29 +50,11 @@
             <version>${kotlin.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.jetbrains.kotlin</groupId>
-            <artifactId>kotlin-reflect</artifactId>
-            <version>${kotlin.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.jetbrains.kotlinx</groupId>
             <artifactId>kotlinx-serialization-runtime</artifactId>
             <version>${serialization.version}</version>
         </dependency>
         <!-- Bukkit -->
-        <!--<dependency>-->
-            <!--<groupId>org.bukkit</groupId>-->
-            <!--<artifactId>craftbukkit</artifactId>-->
-            <!--<version>${spigot.version}</version>-->
-            <!--<type>jar</type>-->
-            <!--<scope>provided</scope>-->
-        <!--</dependency>-->
-        <!--<dependency>-->
-            <!--<groupId>org.bukkit</groupId>-->
-            <!--<artifactId>bukkit</artifactId>-->
-            <!--<version>${spigot.version}</version>-->
-        <!--</dependency>-->
-        <!-- Spigot-API -->
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
@@ -80,23 +62,23 @@
             <type>jar</type>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.bukkit</groupId>
+            <artifactId>craftbukkit</artifactId>
+            <version>${spigot.version}</version>
+            <type>jar</type>
+            <scope>provided</scope>
+        </dependency>
+        <!--<dependency>-->
+            <!--<groupId>org.bukkit</groupId>-->
+            <!--<artifactId>bukkit</artifactId>-->
+            <!--<version>${spigot.version}</version>-->
+        <!--</dependency>-->
         <!-- ProtocolLib API -->
         <dependency>
             <groupId>com.comphenix.protocol</groupId>
             <artifactId>ProtocolLib-API</artifactId>
             <version>${protocollib.version}</version>
-        </dependency>
-        <!--JSON Parsing-->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.9.5</version>
-            <type>jar</type>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.module</groupId>
-            <artifactId>jackson-module-kotlin</artifactId>
-            <version>2.9.4.1</version>
         </dependency>
     </dependencies>
 
@@ -158,6 +140,7 @@
                             </relocations>
                             <artifactSet>
                                 <excludes>
+                                    <exclude>org.bukkit:craftbukkit</exclude>
                                     <exclude>org.spigotmc:spigot-api</exclude>
                                     <exclude>com.comphenix.protocol:ProtocolLib</exclude>
                                 </excludes>

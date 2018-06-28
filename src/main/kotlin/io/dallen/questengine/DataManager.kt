@@ -3,13 +3,17 @@ package io.dallen.questengine
 import kotlinx.serialization.*
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
+import org.bukkit.Location
+import org.bukkit.World
 import org.bukkit.entity.Player
 import java.io.File
 
 object DataManager {
 
     @Serializable
-    data class SimpleLocation(val x: Double, val y: Double, val z: Double, val pitch: Double? = 0.0, val yaw: Double? = 0.0)
+    data class SimpleLocation(val x: Double, val y: Double, val z: Double, val pitch: Float = 0f, val yaw: Float = 0f) {
+        fun toBukkit(world: World): Location = Location(world, x, y, z, pitch, yaw)
+    }
 
     @Serializable
     data class QuestPreReq(val id: Int, val timeout: Int? = null)
@@ -74,10 +78,11 @@ object DataManager {
         }
     }
 
-    fun loadNPCs() {
+    fun loadNPCs(world: World) {
         val npcDir = File(QuestEngine.instance!!.dataFolder.path + "/npcs")
         for(npcFile in npcDir.list()) {
             val loadedNPC = JSON.parse<NPC>(File(npcDir.path + "/" + npcFile).readText())
+            CraftBukkitHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world))
             npcsDirectory[loadedNPC.id] = loadedNPC
         }
     }

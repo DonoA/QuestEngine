@@ -4,6 +4,7 @@ version: ${project.version}
 website: ${project.url}
 description: The core of the MCME quest engine
 author: Dallen
+depend: [ProtocolLib]
 commands:
   Quests:
     description: Core quests command
