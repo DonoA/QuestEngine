@@ -82,7 +82,7 @@ object DataManager {
         val npcDir = File(QuestEngine.instance!!.dataFolder.path + "/npcs")
         for(npcFile in npcDir.list()) {
             val loadedNPC = JSON.parse<NPC>(File(npcDir.path + "/" + npcFile).readText())
-            CraftBukkitHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world))
+            PacketHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world)) { e-> println("triggered") }
             npcsDirectory[loadedNPC.id] = loadedNPC
         }
     }

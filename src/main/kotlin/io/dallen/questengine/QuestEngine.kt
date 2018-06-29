@@ -39,14 +39,7 @@ class QuestEngine : JavaPlugin() {
         DataManager.loadQuests()
         DataManager.loadNPCs(Bukkit.getWorlds()[0])
 
-        val playerInteractAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Client.USE_ENTITY) {
-            override fun onPacketReceiving(event: PacketEvent?) {
-                val interact = CraftBukkitHandler.decodeInteractPacket(event!!)
-                // TODO: add delay here for multi event fire
-                println(interact)
-            }
-        }
-        protocolManager!!.addPacketListener(playerInteractAdapter)
+        PacketHandler.registerAll()
     }
 
     object CommandHandler : CommandExecutor {
@@ -78,8 +71,8 @@ class QuestEngine : JavaPlugin() {
                     DataManager.npcsDirectory[args[1].toInt()]!!.startConvo(player)
                 }
                 "spawn" -> {
-                    val uuid = CraftBukkitHandler.registerNPC("TestNpc", player.location)
-                    CraftBukkitHandler.spawnPlayerEntity(player, uuid)
+                    val id = PacketHandler.registerNPC("TestNpc", player.location) { e -> println(e.eventName) }
+                    PacketHandler.spawnPlayerEntity(player, id)
                 }
                 else -> return false
             }
