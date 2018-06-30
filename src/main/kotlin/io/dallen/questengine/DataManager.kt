@@ -7,6 +7,7 @@ import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.Player
 import java.io.File
+import java.util.*
 
 object DataManager {
 
@@ -31,6 +32,18 @@ object DataManager {
     data class ConversationOption(val text: String, val action: String) {
         fun executeAction(player: Player, owner: NPC) {
             // todo do this
+            val args = action.split(" ")
+            println("exec " + args.toString())
+            when(args[0].toLowerCase()) {
+                "end" -> owner.sendMessage(player, "Goodbye")
+                "nextpoint" -> {
+                    owner.getPointById(args[1].toInt()).sendPoint(player, owner)
+                }
+                "addquest" -> {
+                    owner.sendMessage(player, "(gives quest)")
+                    // assign quest to player asking
+                }
+            }
         }
     }
 
@@ -41,7 +54,7 @@ object DataManager {
                     options.map { op -> ChatMenuController.ChatMenuOption(op.text, ChatColor.AQUA) },
                     { id, _ -> options[id].executeAction(player, owner) }
             )
-            player.sendMessage("${ChatColor.GREEN}${owner.name}${ChatColor.RESET}: $text")
+            owner.sendMessage(player, text)
             ChatMenuController.sendMenu(player, menu)
         }
     }
@@ -51,14 +64,22 @@ object DataManager {
         fun startConvo(player: Player) {
             convoPoints.first().sendPoint(player, this)
         }
+
+        fun getPointById(id: Int) = convoPoints.first { e -> e.id == id }
+
+        fun sendMessage(player: Player, text: String) {
+            player.sendMessage("${ChatColor.GREEN}$name${ChatColor.RESET}: $text")
+        }
     }
 
     @Serializable
-    data class PlayerData(val uuid: String, val activeQuest: Int?, val completedQuests: List<Int> = emptyList(), val lastLocation: SimpleLocation? = null)
+    data class PlayerData(val uuid: String, var questing: Boolean, var activeQuest: Int?, val completedQuests: List<Int> = emptyList(), var lastLocation: SimpleLocation? = null)
 
     val questDirectory: HashMap<Int, Quest> = HashMap()
 
     val npcsDirectory: HashMap<Int, NPC> = HashMap()
+
+    val playerData: HashMap<UUID, PlayerData> = HashMap()
 
     fun buildFileSystem() {
         for(f in arrayOf("quests", "npcs", "playerdata")) {
@@ -82,8 +103,24 @@ object DataManager {
         val npcDir = File(QuestEngine.instance!!.dataFolder.path + "/npcs")
         for(npcFile in npcDir.list()) {
             val loadedNPC = JSON.parse<NPC>(File(npcDir.path + "/" + npcFile).readText())
-            PacketHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world)) { e-> println("triggered") }
+            PacketHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world)) { e -> loadedNPC.startConvo(e.player) }
             npcsDirectory[loadedNPC.id] = loadedNPC
         }
+    }
+
+    fun getPlayerDataLocation(uuid: UUID) =
+            File("${QuestEngine.instance!!.dataFolder.path}/playerdata/$uuid.json")
+
+    fun loadPlayerData(uuid: UUID): PlayerData {
+        val plrDataFile = getPlayerDataLocation(uuid)
+        val plrData = if(plrDataFile.exists()) JSON.parse(plrDataFile.readText())
+                  else PlayerData(uuid.toString(), true, null)
+        playerData[uuid] = plrData
+        return plrData
+    }
+
+    fun savePlayerData(uuid: UUID) {
+        val plrDataFile = getPlayerDataLocation(uuid)
+        plrDataFile.writeText(JSON.stringify(playerData[uuid]!!))
     }
 }

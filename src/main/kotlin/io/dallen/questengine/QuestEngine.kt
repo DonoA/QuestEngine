@@ -7,19 +7,13 @@ import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
-import com.comphenix.protocol.wrappers.WrappedGameProfile
-import com.comphenix.protocol.wrappers.PlayerInfoData
-import com.comphenix.protocol.wrappers.EnumWrappers
-import com.comphenix.protocol.events.PacketContainer
-import com.comphenix.protocol.events.PacketEvent
-import com.comphenix.protocol.PacketType
-import com.comphenix.protocol.events.PacketAdapter
-import net.minecraft.server.v1_12_R1.PacketPlayInUseEntity
+import kotlinx.serialization.json.JSON
 import org.bukkit.Bukkit
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
-import org.bukkit.event.player.PlayerInteractEntityEvent
-import org.bukkit.event.player.PlayerInteractEvent
+import org.bukkit.event.player.*
+import org.bukkit.event.world.WorldSaveEvent
+import java.util.*
 
 
 class QuestEngine : JavaPlugin() {
@@ -48,31 +42,48 @@ class QuestEngine : JavaPlugin() {
                 return false
             }
             val player: Player = sender
-            when(args[0].decapitalize()) {
+            when(args[0].toLowerCase()) {
                 "join" -> {
-                    player.sendMessage("Join!")
+                    player.getData().questing = true
+                    PacketHandler.scanVisibleEntites(player, player.location)
+                    // tp player to their last saved location (if we have one)
+                    player.sendMessage("Quest mode active")
                 }
                 "leave" -> {
-                    player.sendMessage("Leave!")
+                    player.getData().questing = false
+                    PacketHandler.removeAllEntites(player)
+                    player.sendMessage("Quest mode deactivate")
                 }
                 "purge" -> {
                     player.sendMessage("Purge!")
+                    // remove all questing data
                 }
                 "reload" -> {
+                    DataManager.playerData.clear()
+                    DataManager.npcsDirectory.clear()
+                    DataManager.questDirectory.clear()
+
+                    DataManager.loadQuests()
+                    DataManager.loadNPCs(Bukkit.getWorlds()[0])
+
                     player.sendMessage("Reload!")
                 }
                 "save" -> {
-                    player.sendMessage("Save!")
+                    DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
+                    player.sendMessage("All player data saved")
                 }
                 "bknd" -> {
-                    ChatMenuController.handleClick(player.uniqueId, args[2].toInt())
+                    ChatMenuController.handleClick(UUID.fromString(args[1]), args[2].toInt())
                 }
                 "dev" -> {
                     DataManager.npcsDirectory[args[1].toInt()]!!.startConvo(player)
                 }
-                "spawn" -> {
-                    val id = PacketHandler.registerNPC("TestNpc", player.location) { e -> println(e.eventName) }
-                    PacketHandler.spawnPlayerEntity(player, id)
+                "loc" -> {
+                    val l = DataManager.SimpleLocation(player.location.x, player.location.y, player.location.z)
+                    println(JSON.indented.stringify(l))
+                }
+                "npc" -> {
+                    println(DataManager.npcsDirectory[args[1].toInt()])
                 }
                 else -> return false
             }
@@ -82,8 +93,34 @@ class QuestEngine : JavaPlugin() {
 
     object EventListener : Listener {
         @EventHandler
-        fun onClick(e: PlayerInteractEntityEvent) {
-            println(e)
+        fun onMove(e: PlayerMoveEvent) {
+            if(e.to.distance(e.from) == 0.0) return
+            if(!e.player.isQuester()) return
+            PacketHandler.scanVisibleEntites(e.player, e.to)
+        }
+
+        @EventHandler
+        fun onJoin(e: PlayerJoinEvent) {
+            println("Add plr ${e.player.name}")
+
+            // this ensures that the data will be ready to go
+            if(e.player.isQuester()) {
+                e.player.getData()
+                PacketHandler.scanVisibleEntites(e.player, e.player.location)
+            }
+        }
+
+        @EventHandler
+        fun onLeave(e: PlayerQuitEvent) {
+            println("Rm plr ${e.player.name}")
+            DataManager.savePlayerData(e.player.uniqueId)
+        }
+
+        @EventHandler
+        fun onWorldSave(e: WorldSaveEvent) {
+            println("Save all plr data")
+            // TODO: add use dirty alg
+            DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
         }
     }
 }

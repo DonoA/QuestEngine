@@ -21,9 +21,11 @@ import org.bukkit.craftbukkit.v1_12_R1.CraftWorld
 import org.bukkit.craftbukkit.v1_12_R1.entity.CraftPlayer
 
 
-
-
 object PacketHandler {
+
+    // Despite the disgusting mix of NMS, OBC, and protocol lib seen in this file, I think this is the easiest way
+    // to accomplish what we want. NMS and OBC would require channel injection to sample packets while Protocol lib
+    // requires extensive byte encoding to create the needed Entity watcher object that CBS creates for us
 
     data class EntityInteractEvent(val entityId: Int, val hand: Entity)
 
@@ -34,6 +36,8 @@ object PacketHandler {
 
     val fakePlayerInteractCooldown: HashMap<UUID, Long> = HashMap()
 
+    val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
+
     fun registerNPC(name: String, location: Location, handler: (PlayerInteractEntityEvent) -> Unit): Int {
         val nmsServer = (Bukkit.getServer() as CraftServer).server
         val nmsWorld = (Bukkit.getWorlds()[0] as CraftWorld).handle
@@ -42,7 +46,33 @@ object PacketHandler {
         npc.setLocation(location.x, location.y, location.z, location.yaw, location.pitch)
         fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, handler)
         return npc.id
+    }
 
+    fun scanVisibleEntites(p: Player, loc: Location) {
+        // TODO: this is quite poorly optimized and should fixed at some point
+        PacketHandler.fakePlayerHandles.forEach { id, npc ->
+            // View distance for npcs is 45, could be changed if needed
+            if(npc.location.distance(loc) < 45.0) {
+                PacketHandler.tryRenderPlayerEntity(p, id)
+            } else {
+                PacketHandler.tryRemoveRenderedPlayerEntity(p, id)
+            }
+        }
+    }
+
+    fun removeAllEntites(p: Player) {
+        renderedFakePlayers.forEach { _, npcs ->
+            npcs.toMutableSet().forEach { npcId ->
+                tryRemoveRenderedPlayerEntity(p, npcId)
+            }
+        }
+    }
+
+    fun tryRenderPlayerEntity(p: Player, id: Int) {
+        val l  = renderedFakePlayers.findOrCreate(p.uniqueId, mutableSetOf())
+        if(l.contains(id)) return
+        spawnPlayerEntity(p, id)
+        l.add(id)
     }
 
     fun spawnPlayerEntity(p: Player, id: Int) {
@@ -51,6 +81,13 @@ object PacketHandler {
 
         connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, npc))
         connection.sendPacket(PacketPlayOutNamedEntitySpawn(npc))
+    }
+
+    fun tryRemoveRenderedPlayerEntity(p: Player, id: Int) {
+        val l  = renderedFakePlayers.findOrCreate(p.uniqueId, mutableSetOf())
+        if(!l.contains(id)) return
+        removePlayerEntity(p, id)
+        l.remove(id)
     }
 
     fun removePlayerEntity(p: Player, id: Int) {
@@ -66,11 +103,14 @@ object PacketHandler {
             override fun onPacketReceiving(event: PacketEvent?) {
                 val lastHit = fakePlayerInteractCooldown[event!!.player.uniqueId]
                 when {
-                    lastHit == null -> fakePlayerInteractCooldown[event.player.uniqueId] = System.currentTimeMillis()
+                    lastHit == null -> {
+                        fakePlayerInteractCooldown[event.player.uniqueId] = System.currentTimeMillis()
+                    }
                     lastHit + 750 > System.currentTimeMillis() -> return
-                    else -> fakePlayerInteractCooldown.remove(event.player.uniqueId)
+                    else -> {
+                        fakePlayerInteractCooldown[event.player.uniqueId] = System.currentTimeMillis()
+                    }
                 }
-
                 val container = event.packet as PacketContainer
                 val id = container.integers.read(0)
                 val target: Entity = PacketHandler.fakePlayerHandles[id]!!.handle.bukkitEntity
