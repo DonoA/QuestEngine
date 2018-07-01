@@ -4,8 +4,8 @@ import net.md_5.bungee.api.ChatColor
 import org.bukkit.entity.Player
 import java.util.*
 import net.md_5.bungee.api.chat.ClickEvent
-import net.md_5.bungee.api.chat.ComponentBuilder
 import net.md_5.bungee.api.chat.TextComponent
+import org.bukkit.event.Listener
 
 object ChatMenuController {
     val openMenus: HashMap<UUID, ChatMenu> = HashMap()

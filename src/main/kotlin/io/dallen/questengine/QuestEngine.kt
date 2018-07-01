@@ -8,6 +8,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 import kotlinx.serialization.json.JSON
+import net.md_5.bungee.api.ChatColor
 import org.bukkit.Bukkit
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
@@ -29,6 +30,7 @@ class QuestEngine : JavaPlugin() {
         Bukkit.getPluginManager().registerEvents(EventListener, this)
         instance = this
         protocolManager = ProtocolLibrary.getProtocolManager()
+
         DataManager.buildFileSystem()
         DataManager.loadQuests()
         DataManager.loadNPCs(Bukkit.getWorlds()[0])
@@ -54,6 +56,18 @@ class QuestEngine : JavaPlugin() {
                     PacketHandler.removeAllEntites(player)
                     player.sendMessage("Quest mode deactivate")
                 }
+                "current" -> {
+                    if(player.getData().activeQuest == -1) {
+                        player.sendMessage("You have no active quests")
+                        return true
+                    }
+                    val activeQuest = DataManager.questDirectory[player.getData().activeQuest]!!
+                    player.sendMessage("Active quest: ${activeQuest.title}")
+                    activeQuest.objectives.forEach { obj ->
+                        val objColor = if(player.getData().completedObjectives.contains(obj.id)) ChatColor.GREEN else ChatColor.RESET
+                        player.sendMessage("$objColor - ${obj.createMessage()}")
+                    }
+                }
                 "purge" -> {
                     player.sendMessage("Purge!")
                     // remove all questing data
@@ -75,15 +89,17 @@ class QuestEngine : JavaPlugin() {
                 "bknd" -> {
                     ChatMenuController.handleClick(UUID.fromString(args[1]), args[2].toInt())
                 }
-                "dev" -> {
-                    DataManager.npcsDirectory[args[1].toInt()]!!.startConvo(player)
-                }
                 "loc" -> {
                     val l = DataManager.SimpleLocation(player.location.x, player.location.y, player.location.z)
                     println(JSON.indented.stringify(l))
                 }
-                "npc" -> {
-                    println(DataManager.npcsDirectory[args[1].toInt()])
+                "dev" -> {
+                    DataManager.npcsDirectory.forEach {
+                        _, npc -> println(JSON.indented.stringify(npc))
+                    }
+                    DataManager.questDirectory.forEach {
+                        _, q -> println(JSON.indented.stringify(q))
+                    }
                 }
                 else -> return false
             }
@@ -121,6 +137,15 @@ class QuestEngine : JavaPlugin() {
             println("Save all plr data")
             // TODO: add use dirty alg
             DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
+        }
+
+        @EventHandler
+        fun onClick(e: PlayerInteractEvent) {
+            val obj = e.player.getData().findQuest()?.findInteractObjective(e.clickedBlock.location)
+            if(obj != null) {
+                e.player.getData().completedObjectives.add(obj.id)
+                e.player.sendMessage("Objective completed!")
+            }
         }
     }
 }

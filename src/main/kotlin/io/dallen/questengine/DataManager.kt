@@ -17,31 +17,55 @@ object DataManager {
     }
 
     @Serializable
-    data class QuestPreReq(val id: Int, val timeout: Int? = null)
+    data class QuestPreReq(val id: Int, val timeout: Int = 0)
 
     @Serializable
-    data class QuestObjectiveParameters(val npc: Int? = null, val location: SimpleLocation? = null)
+    data class QuestObjectiveParameters(val location: SimpleLocation? = null)
 
     @Serializable
-    data class QuestObjective(val id: Int, val type: String, val parameters: QuestObjectiveParameters, val preReq: List<QuestPreReq> = emptyList())
+    data class QuestObjective(val id: Int, val type: String, val info: String, val parameters: QuestObjectiveParameters,
+                              val preReq: List<QuestPreReq> = emptyList()) {
+        fun createMessage(): String {
+            return "$type, $info"
+        }
+    }
 
     @Serializable
-    data class Quest(val id: Int, val title: String, val objectives: List<QuestObjective>)
+    data class Quest(val id: Int, val title: String, val objectives: List<QuestObjective>) {
+        fun findInteractObjective(loc: Location): QuestObjective {
+            return objectives.first {
+                obj -> obj.type == "interact" && obj.parameters.location!!.toBukkit(loc.world) == loc
+            }
+        }
+    }
 
     @Serializable
     data class ConversationOption(val text: String, val action: String) {
-        fun executeAction(player: Player, owner: NPC) {
-            // todo do this
+        fun executeAction(player: Player, owner: NPC, state: NPCState) {
             val args = action.split(" ")
             println("exec " + args.toString())
             when(args[0].toLowerCase()) {
                 "end" -> owner.sendMessage(player, "Goodbye")
                 "nextpoint" -> {
-                    owner.getPointById(args[1].toInt()).sendPoint(player, owner)
+                    state.getPointById(args[1].toInt()).sendPoint(player, owner, state)
                 }
                 "addquest" -> {
-                    owner.sendMessage(player, "(gives quest)")
-                    // assign quest to player asking
+                    if(player.getData().activeQuest != -1) {
+                        owner.sendMessage(player, "It seems you are already working on a task")
+                    } else {
+                        player.getData().activeQuest = args[1].toInt()
+                        player.sendMessage("Quest Accepted!")
+                    }
+                }
+                "finishquest" -> {
+                    player.sendMessage("Quest Completed!")
+                    player.getData().completedQuests.add(player.getData().activeQuest)
+                    player.getData().activeQuest = -1
+                    player.getData().completedObjectives.clear()
+                }
+                "obj" -> {
+                    player.sendMessage("Objective Completed!")
+                    player.getData().completedObjectives.add(args[1].toInt())
                 }
             }
         }
@@ -49,10 +73,10 @@ object DataManager {
 
     @Serializable
     data class ConversationPoint(val id: Int, val text: String, val options: List<ConversationOption>) {
-        fun sendPoint(player: Player, owner: NPC) {
+        fun sendPoint(player: Player, owner: NPC, state: NPCState) {
             val menu = ChatMenuController.ChatMenu(
                     options.map { op -> ChatMenuController.ChatMenuOption(op.text, ChatColor.AQUA) },
-                    { id, _ -> options[id].executeAction(player, owner) }
+                    { id, _ -> options[id].executeAction(player, owner, state) }
             )
             owner.sendMessage(player, text)
             ChatMenuController.sendMenu(player, menu)
@@ -60,12 +84,28 @@ object DataManager {
     }
 
     @Serializable
-    data class NPC(val id: Int, val name: String, val location: SimpleLocation, val convoPoints: List<ConversationPoint>) {
-        fun startConvo(player: Player) {
-            convoPoints.first().sendPoint(player, this)
+    data class NPCStateReq(val activeQuest: Int?, val completedObjectives: List<Int>, val completedQuests: List<Int>)
+
+    @Serializable
+    data class NPCState(val location: SimpleLocation, val stateRequirements: NPCStateReq,
+                        val convoPoints: List<ConversationPoint>) {
+        fun fitsReqs(pd: PlayerData): Boolean {
+            if(stateRequirements.activeQuest != null && pd.activeQuest != stateRequirements.activeQuest) return false
+            if(!pd.completedObjectives.containsAll(stateRequirements.completedObjectives)) return false
+            if(!pd.completedQuests.containsAll(stateRequirements.completedQuests)) return false
+            return true
         }
 
         fun getPointById(id: Int) = convoPoints.first { e -> e.id == id }
+
+        fun startConvo(player: Player, npc: NPC) {
+            convoPoints.first().sendPoint(player, npc, this)
+        }
+    }
+
+    @Serializable
+    data class NPC(val id: Int, val name: String, val states: List<NPCState>) {
+        fun state(pd: PlayerData) = states.last { e-> e.fitsReqs(pd) }
 
         fun sendMessage(player: Player, text: String) {
             player.sendMessage("${ChatColor.GREEN}$name${ChatColor.RESET}: $text")
@@ -73,7 +113,12 @@ object DataManager {
     }
 
     @Serializable
-    data class PlayerData(val uuid: String, var questing: Boolean, var activeQuest: Int?, val completedQuests: List<Int> = emptyList(), var lastLocation: SimpleLocation? = null)
+    data class PlayerData(val uuid: String, var questing: Boolean, var activeQuest: Int = -1,
+                          val completedObjectives: MutableList<Int> = mutableListOf(),
+                          val completedQuests: MutableList<Int> = mutableListOf(),
+                          var lastLocation: SimpleLocation? = null) {
+        fun findQuest() = questDirectory[activeQuest]
+    }
 
     val questDirectory: HashMap<Int, Quest> = HashMap()
 
@@ -102,8 +147,15 @@ object DataManager {
     fun loadNPCs(world: World) {
         val npcDir = File(QuestEngine.instance!!.dataFolder.path + "/npcs")
         for(npcFile in npcDir.list()) {
+            println(npcFile)
             val loadedNPC = JSON.parse<NPC>(File(npcDir.path + "/" + npcFile).readText())
-            PacketHandler.registerNPC(loadedNPC.name, loadedNPC.location.toBukkit(world)) { e -> loadedNPC.startConvo(e.player) }
+            loadedNPC.states.forEach { state ->
+                PacketHandler.registerNPC(loadedNPC.name, state.location.toBukkit(world),
+                    { p -> loadedNPC.state(p.getData()) == state },
+                    { e -> state.startConvo(e.player, loadedNPC) }
+                )
+            }
+
             npcsDirectory[loadedNPC.id] = loadedNPC
         }
     }
@@ -114,7 +166,7 @@ object DataManager {
     fun loadPlayerData(uuid: UUID): PlayerData {
         val plrDataFile = getPlayerDataLocation(uuid)
         val plrData = if(plrDataFile.exists()) JSON.parse(plrDataFile.readText())
-                  else PlayerData(uuid.toString(), true, null)
+                  else PlayerData(uuid.toString(), true)
         playerData[uuid] = plrData
         return plrData
     }

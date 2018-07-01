@@ -27,10 +27,9 @@ object PacketHandler {
     // to accomplish what we want. NMS and OBC would require channel injection to sample packets while Protocol lib
     // requires extensive byte encoding to create the needed Entity watcher object that CBS creates for us
 
-    data class EntityInteractEvent(val entityId: Int, val hand: Entity)
-
     data class FakePlayerEntity(val location: Location, val name: String, val uuid: UUID, val id: Int,
-                                val handle: EntityPlayer, val interactEvent: (PlayerInteractEntityEvent) -> Unit)
+                                val handle: EntityPlayer, val visible: (Player) -> Boolean,
+                                val interactEvent: (PlayerInteractEntityEvent) -> Unit)
 
     val fakePlayerHandles: HashMap<Int, FakePlayerEntity> = HashMap()
 
@@ -38,13 +37,13 @@ object PacketHandler {
 
     val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
 
-    fun registerNPC(name: String, location: Location, handler: (PlayerInteractEntityEvent) -> Unit): Int {
+    fun registerNPC(name: String, location: Location, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
         val nmsServer = (Bukkit.getServer() as CraftServer).server
         val nmsWorld = (Bukkit.getWorlds()[0] as CraftWorld).handle
         val uuid = UUID.randomUUID()
         val npc = EntityPlayer(nmsServer, nmsWorld, GameProfile(uuid, name), PlayerInteractManager(nmsWorld))
         npc.setLocation(location.x, location.y, location.z, location.yaw, location.pitch)
-        fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, handler)
+        fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, visible, handler)
         return npc.id
     }
 
@@ -52,7 +51,7 @@ object PacketHandler {
         // TODO: this is quite poorly optimized and should fixed at some point
         PacketHandler.fakePlayerHandles.forEach { id, npc ->
             // View distance for npcs is 45, could be changed if needed
-            if(npc.location.distance(loc) < 45.0) {
+            if(npc.visible.invoke(p) && npc.location.distance(loc) < 45.0) {
                 PacketHandler.tryRenderPlayerEntity(p, id)
             } else {
                 PacketHandler.tryRemoveRenderedPlayerEntity(p, id)
