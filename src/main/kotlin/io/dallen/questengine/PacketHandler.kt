@@ -9,12 +9,15 @@ import com.comphenix.protocol.events.PacketContainer
 import com.comphenix.protocol.events.PacketEvent
 import com.comphenix.protocol.PacketType
 import com.comphenix.protocol.events.PacketAdapter
+import com.comphenix.protocol.wrappers.WrappedGameProfile
+import com.comphenix.protocol.wrappers.WrappedSignedProperty
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import java.util.UUID
 import org.bukkit.Bukkit
 
 // imports needing updates follow: !!
 import com.mojang.authlib.GameProfile
+import com.mojang.authlib.minecraft.MinecraftSessionService
 import net.minecraft.server.v1_12_R1.*
 import org.bukkit.craftbukkit.v1_12_R1.CraftServer
 import org.bukkit.craftbukkit.v1_12_R1.CraftWorld
@@ -37,11 +40,19 @@ object PacketHandler {
 
     val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
 
-    fun registerNPC(name: String, location: Location, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
+    fun registerNPC(name: String, location: Location, skinId: String?, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
         val nmsServer = (Bukkit.getServer() as CraftServer).server
-        val nmsWorld = (Bukkit.getWorlds()[0] as CraftWorld).handle
+        val nmsWorld = (QuestEngine.setting!! as CraftWorld).handle
         val uuid = UUID.randomUUID()
-        val npc = EntityPlayer(nmsServer, nmsWorld, GameProfile(uuid, name), PlayerInteractManager(nmsWorld))
+        val profile = WrappedGameProfile(uuid, name)
+
+        if(skinId != null) {
+            val skinProps = DataManager.skinDirectory[skinId]!!.props.map { skin -> WrappedSignedProperty(skin.name, skin.value, skin.sig) }
+            profile.properties.removeAll("textures")
+            profile.properties.putAll("textures", skinProps)
+        }
+
+        val npc = EntityPlayer(nmsServer, nmsWorld, profile.handle as GameProfile, PlayerInteractManager(nmsWorld))
         npc.setLocation(location.x, location.y, location.z, location.yaw, location.pitch)
         fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, visible, handler)
         return npc.id
@@ -121,5 +132,23 @@ object PacketHandler {
         }
 
         QuestEngine.protocolManager!!.addPacketListener(playerInteractAdapter)
+
+    }
+
+    fun stealSkin(name: String): Array<WrappedSignedProperty> {
+        var profile = WrappedGameProfile.fromOfflinePlayer(Bukkit.getOfflinePlayer(name))
+        val nmsServer = (Bukkit.getServer() as CraftServer).server
+        val sessions: MinecraftSessionService = nmsServer.javaClass.methods.first {
+            m-> m.returnType.simpleName.equals("MinecraftSessionService", true)}
+                .invoke(nmsServer) as MinecraftSessionService
+        val handle = profile.handle as GameProfile
+        try {
+            sessions.fillProfileProperties(handle, true)
+        } catch(e: Exception) {
+            println("Could not fill skin request!")
+            e.printStackTrace()
+        }
+        profile = WrappedGameProfile.fromHandle(handle)
+        return profile.properties.get("textures")!!.toTypedArray()
     }
 }

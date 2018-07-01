@@ -1,6 +1,7 @@
 package io.dallen.questengine
 
 import kotlinx.serialization.*
+import kotlinx.serialization.Optional
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
 import org.bukkit.Location
@@ -12,15 +13,26 @@ import java.util.*
 object DataManager {
 
     @Serializable
+    data class SavedSkinProp(val name: String, val value: String, val sig: String)
+
+    @Serializable
+    data class SavedSkin(val id: String, val props: List<SavedSkinProp>)
+
+    @Serializable
     data class SimpleLocation(val x: Double, val y: Double, val z: Double, val pitch: Float = 0f, val yaw: Float = 0f) {
         fun toBukkit(world: World): Location = Location(world, x, y, z, pitch, yaw)
+
+        companion object {
+            fun fromSimpleBukkit(loc: Location) = SimpleLocation(loc.x, loc.y, loc.z)
+            fun fromFullBukkit(loc: Location) = SimpleLocation(loc.x, loc.y, loc.z, loc.pitch, loc.yaw)
+        }
     }
 
     @Serializable
-    data class QuestPreReq(val id: Int, val timeout: Int = 0)
+    data class QuestPreReq(val id: Int, @Optional val timeout: Int = 0)
 
     @Serializable
-    data class QuestObjectiveParameters(val location: SimpleLocation? = null)
+    data class QuestObjectiveParameters(@Optional val location: SimpleLocation? = null)
 
     @Serializable
     data class QuestObjective(val id: Int, val type: String, val info: String, val parameters: QuestObjectiveParameters,
@@ -104,7 +116,7 @@ object DataManager {
     }
 
     @Serializable
-    data class NPC(val id: Int, val name: String, val states: List<NPCState>) {
+    data class NPC(val id: Int, val name: String, @Optional val skinName: String? = null, val states: List<NPCState>) {
         fun state(pd: PlayerData) = states.last { e-> e.fitsReqs(pd) }
 
         fun sendMessage(player: Player, text: String) {
@@ -116,7 +128,8 @@ object DataManager {
     data class PlayerData(val uuid: String, var questing: Boolean, var activeQuest: Int = -1,
                           val completedObjectives: MutableList<Int> = mutableListOf(),
                           val completedQuests: MutableList<Int> = mutableListOf(),
-                          var lastLocation: SimpleLocation? = null) {
+                          var lastLocation: SimpleLocation? = null,
+                          @Transient var dirty: Boolean = false) {
         fun findQuest() = questDirectory[activeQuest]
     }
 
@@ -124,10 +137,12 @@ object DataManager {
 
     val npcsDirectory: HashMap<Int, NPC> = HashMap()
 
+    val skinDirectory: HashMap<String, SavedSkin> = HashMap()
+
     val playerData: HashMap<UUID, PlayerData> = HashMap()
 
     fun buildFileSystem() {
-        for(f in arrayOf("quests", "npcs", "playerdata")) {
+        for(f in arrayOf("quests", "npcs", "playerdata", "skins")) {
             val dir = File(QuestEngine.instance!!.dataFolder.path + "/" + f)
             println("mk " + dir.path)
             if(!dir.exists()) {
@@ -150,7 +165,7 @@ object DataManager {
             println(npcFile)
             val loadedNPC = JSON.parse<NPC>(File(npcDir.path + "/" + npcFile).readText())
             loadedNPC.states.forEach { state ->
-                PacketHandler.registerNPC(loadedNPC.name, state.location.toBukkit(world),
+                PacketHandler.registerNPC(loadedNPC.name, state.location.toBukkit(world), loadedNPC.skinName,
                     { p -> loadedNPC.state(p.getData()) == state },
                     { e -> state.startConvo(e.player, loadedNPC) }
                 )
@@ -174,5 +189,20 @@ object DataManager {
     fun savePlayerData(uuid: UUID) {
         val plrDataFile = getPlayerDataLocation(uuid)
         plrDataFile.writeText(JSON.stringify(playerData[uuid]!!))
+    }
+
+    fun loadAvailableSkins() {
+        val skinDir = File(QuestEngine.instance!!.dataFolder.path + "/skins")
+        for(skinFile in skinDir.list()) {
+            val loadedSkin = JSON.parse<SavedSkin>(File(skinDir.path + "/" + skinFile).readText())
+            skinDirectory[loadedSkin.id] = loadedSkin
+        }
+    }
+
+    fun acquireSkin(user: String, name: String) {
+        val dbSkin = PacketHandler.stealSkin(user)
+        val dbSavedSkin = dbSkin.map { s -> SavedSkinProp(s.name, s.value, s.signature) }
+        val dbSavedSkinStr = JSON.indented.stringify(SavedSkin(name, dbSavedSkin))
+        File("${QuestEngine.instance!!.dataFolder.path}/skins/$name.json").writeText(dbSavedSkinStr)
     }
 }

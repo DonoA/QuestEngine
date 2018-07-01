@@ -9,7 +9,10 @@ import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
+import net.minecraft.server.v1_12_R1.Packet
 import org.bukkit.Bukkit
+import org.bukkit.Material
+import org.bukkit.World
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.player.*
@@ -22,6 +25,7 @@ class QuestEngine : JavaPlugin() {
     companion object {
         var instance: QuestEngine? = null
         var protocolManager: ProtocolManager? = null
+        var setting: World? = null
         private set
     }
 
@@ -30,12 +34,18 @@ class QuestEngine : JavaPlugin() {
         Bukkit.getPluginManager().registerEvents(EventListener, this)
         instance = this
         protocolManager = ProtocolLibrary.getProtocolManager()
+        setting = Bukkit.getWorlds()[0]
 
         DataManager.buildFileSystem()
         DataManager.loadQuests()
-        DataManager.loadNPCs(Bukkit.getWorlds()[0])
+        DataManager.loadAvailableSkins()
+        DataManager.loadNPCs(setting!!)
 
         PacketHandler.registerAll()
+    }
+
+    override fun onDisable() {
+        DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
     }
 
     object CommandHandler : CommandExecutor {
@@ -47,12 +57,20 @@ class QuestEngine : JavaPlugin() {
             when(args[0].toLowerCase()) {
                 "join" -> {
                     player.getData().questing = true
+                    if(player.getData().lastLocation != null) {
+                        player.teleport(player.getData().lastLocation!!.toBukkit(setting!!))
+                        player.getData().lastLocation = null
+                    }
                     PacketHandler.scanVisibleEntites(player, player.location)
+
+                    player.getData().lastLocation = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
+
                     // tp player to their last saved location (if we have one)
                     player.sendMessage("Quest mode active")
                 }
                 "leave" -> {
                     player.getData().questing = false
+                    player.getData().lastLocation = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
                     PacketHandler.removeAllEntites(player)
                     player.sendMessage("Quest mode deactivate")
                 }
@@ -69,16 +87,22 @@ class QuestEngine : JavaPlugin() {
                     }
                 }
                 "purge" -> {
-                    player.sendMessage("Purge!")
-                    // remove all questing data
+                    DataManager.playerData.remove(player.uniqueId)
+                    DataManager.getPlayerDataLocation(player.uniqueId).delete()
+                    player.sendMessage("Data removed and deleted. You're off the grid")
                 }
                 "reload" -> {
+                    Bukkit.getOnlinePlayers().forEach { p -> PacketHandler.removeAllEntites(p) }
+                    PacketHandler.fakePlayerHandles.clear()
+
                     DataManager.playerData.clear()
                     DataManager.npcsDirectory.clear()
                     DataManager.questDirectory.clear()
+                    DataManager.skinDirectory.clear()
 
                     DataManager.loadQuests()
-                    DataManager.loadNPCs(Bukkit.getWorlds()[0])
+                    DataManager.loadAvailableSkins()
+                    DataManager.loadNPCs(setting!!)
 
                     player.sendMessage("Reload!")
                 }
@@ -91,7 +115,12 @@ class QuestEngine : JavaPlugin() {
                 }
                 "loc" -> {
                     val l = DataManager.SimpleLocation(player.location.x, player.location.y, player.location.z)
-                    println(JSON.indented.stringify(l))
+                    println("Player at: ${JSON.indented.stringify(l)}")
+                    val tb = player.getTargetBlock(mutableSetOf(Material.AIR), 5)
+                    if(tb != null) {
+                        val r = DataManager.SimpleLocation(tb.location.x, tb.location.y, tb.location.z)
+                        println("Looking at: ${JSON.indented.stringify(r)}")
+                    }
                 }
                 "dev" -> {
                     DataManager.npcsDirectory.forEach {
@@ -100,6 +129,9 @@ class QuestEngine : JavaPlugin() {
                     DataManager.questDirectory.forEach {
                         _, q -> println(JSON.indented.stringify(q))
                     }
+                }
+                "savenew" -> {
+                    DataManager.acquireSkin("D4llen", args[1])
                 }
                 else -> return false
             }
@@ -130,6 +162,7 @@ class QuestEngine : JavaPlugin() {
         fun onLeave(e: PlayerQuitEvent) {
             println("Rm plr ${e.player.name}")
             DataManager.savePlayerData(e.player.uniqueId)
+            PacketHandler.removeAllEntites(e.player)
         }
 
         @EventHandler
