@@ -146,12 +146,12 @@ object DataManager {
             set(value) {
                 field = value
                 dirty = true
-                if(value) {
-                    val fs = questDirectory[activeQuest]!!.getFakeStates(getPlayer().world)
-                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
-                } else {
-                    PacketHandler.removeFakeStates(UUID.fromString(uuid))
-                }
+//                if(value) {
+//                    val fs = questDirectory[activeQuest]!!.getFakeStates(getPlayer().world)
+//                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
+//                } else {
+//                    PacketHandler.removeFakeStates(UUID.fromString(uuid))
+//                }
             }
 
         var activeQuest = activeQuest
@@ -159,10 +159,10 @@ object DataManager {
                 PacketHandler.removeFakeStates(UUID.fromString(uuid))
                 field = value
                 dirty = true
-                if(value != -1) {
-                    val fs = questDirectory[value]!!.getFakeStates(getPlayer().world)
-                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
-                }
+//                if(value != -1) {
+//                    val fs = questDirectory[value]!!.getFakeStates(getPlayer().world)
+//                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
+//                }
             }
 
         var lastLocation = lastLocation
