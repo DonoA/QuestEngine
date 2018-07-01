@@ -9,7 +9,6 @@ import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
-import net.minecraft.server.v1_12_R1.Packet
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.World
@@ -26,6 +25,7 @@ class QuestEngine : JavaPlugin() {
         var instance: QuestEngine? = null
         var protocolManager: ProtocolManager? = null
         var setting: World? = null
+        var viewDist: Int = 45
         private set
     }
 
@@ -33,8 +33,10 @@ class QuestEngine : JavaPlugin() {
         this.getCommand("Quests").executor = CommandHandler
         Bukkit.getPluginManager().registerEvents(EventListener, this)
         instance = this
+        this.saveDefaultConfig()
         protocolManager = ProtocolLibrary.getProtocolManager()
-        setting = Bukkit.getWorlds()[0]
+        setting = Bukkit.getWorld(this.config.getString("mainWorld"))
+        viewDist = this.config.getInt("npcViewDist")
 
         DataManager.buildFileSystem()
         DataManager.loadQuests()
@@ -45,7 +47,7 @@ class QuestEngine : JavaPlugin() {
     }
 
     override fun onDisable() {
-        DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
+        DataManager.saveDirtyPlayers()
     }
 
     object CommandHandler : CommandExecutor {
@@ -61,17 +63,15 @@ class QuestEngine : JavaPlugin() {
                         player.teleport(player.getData().lastLocation!!.toBukkit(setting!!))
                         player.getData().lastLocation = null
                     }
-                    PacketHandler.scanVisibleEntites(player, player.location)
+                    PacketHandler.scanVisibleEntities(player, player.location)
 
-                    player.getData().lastLocation = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
-
-                    // tp player to their last saved location (if we have one)
                     player.sendMessage("Quest mode active")
                 }
                 "leave" -> {
                     player.getData().questing = false
                     player.getData().lastLocation = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
-                    PacketHandler.removeAllEntites(player)
+
+                    PacketHandler.removeAllEntities(player)
                     player.sendMessage("Quest mode deactivate")
                 }
                 "current" -> {
@@ -86,13 +86,27 @@ class QuestEngine : JavaPlugin() {
                         player.sendMessage("$objColor - ${obj.createMessage()}")
                     }
                 }
+                "completed" -> {
+                    if(player.getData().completedQuests.isEmpty() && player.getData().activeQuest == -1) {
+                        player.sendMessage("You do not have any quests active or completed")
+                        return true
+                    }
+                    player.sendMessage("Quests:")
+                    player.getData().completedQuests.forEach { questId ->
+                        player.sendMessage("${ChatColor.GREEN} - ${DataManager.questDirectory[questId]!!.title}")
+                    }
+                    if(player.getData().activeQuest != -1) {
+                        player.sendMessage("${ChatColor.YELLOW} - ${DataManager.questDirectory[player.getData().activeQuest]!!.title}")
+                    }
+                }
                 "purge" -> {
                     DataManager.playerData.remove(player.uniqueId)
                     DataManager.getPlayerDataLocation(player.uniqueId).delete()
                     player.sendMessage("Data removed and deleted. You're off the grid")
                 }
                 "reload" -> {
-                    Bukkit.getOnlinePlayers().forEach { p -> PacketHandler.removeAllEntites(p) }
+                    if(!player.hasPermission(PermissionManager.adminPermission)) return false
+                    Bukkit.getOnlinePlayers().forEach { p -> PacketHandler.removeAllEntities(p) }
                     PacketHandler.fakePlayerHandles.clear()
 
                     DataManager.playerData.clear()
@@ -107,6 +121,8 @@ class QuestEngine : JavaPlugin() {
                     player.sendMessage("Reload!")
                 }
                 "save" -> {
+                    if(!player.hasPermission(PermissionManager.staffPermission)) return false
+                    // force non dirty save
                     DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
                     player.sendMessage("All player data saved")
                 }
@@ -114,15 +130,17 @@ class QuestEngine : JavaPlugin() {
                     ChatMenuController.handleClick(UUID.fromString(args[1]), args[2].toInt())
                 }
                 "loc" -> {
-                    val l = DataManager.SimpleLocation(player.location.x, player.location.y, player.location.z)
+                    val l = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
                     println("Player at: ${JSON.indented.stringify(l)}")
                     val tb = player.getTargetBlock(mutableSetOf(Material.AIR), 5)
                     if(tb != null) {
-                        val r = DataManager.SimpleLocation(tb.location.x, tb.location.y, tb.location.z)
+                        val r = DataManager.SimpleLocation.fromSimpleBukkit(tb.location)
                         println("Looking at: ${JSON.indented.stringify(r)}")
                     }
+                    player.sendMessage("Location logged to console")
                 }
-                "dev" -> {
+                "stats" -> {
+                    if(!player.hasPermission(PermissionManager.staffPermission)) return false
                     DataManager.npcsDirectory.forEach {
                         _, npc -> println(JSON.indented.stringify(npc))
                     }
@@ -130,8 +148,14 @@ class QuestEngine : JavaPlugin() {
                         _, q -> println(JSON.indented.stringify(q))
                     }
                 }
-                "savenew" -> {
-                    DataManager.acquireSkin("D4llen", args[1])
+                "saveskin" -> {
+                    if(!player.hasPermission(PermissionManager.adminPermission)) return false
+                    DataManager.acquireSkin(if(args.size > 2) args[2] else "D4llen", args[1])
+                }
+                "loaddata" -> {
+                    if(!player.hasPermission(PermissionManager.adminPermission)) return false
+                    DataManager.loadFile(args[1], args[2])
+                    player.sendMessage("${ChatColor.GREEN}Saved to ${args[2]}!")
                 }
                 else -> return false
             }
@@ -144,7 +168,7 @@ class QuestEngine : JavaPlugin() {
         fun onMove(e: PlayerMoveEvent) {
             if(e.to.distance(e.from) == 0.0) return
             if(!e.player.isQuester()) return
-            PacketHandler.scanVisibleEntites(e.player, e.to)
+            PacketHandler.scanVisibleEntities(e.player, e.to)
         }
 
         @EventHandler
@@ -154,7 +178,7 @@ class QuestEngine : JavaPlugin() {
             // this ensures that the data will be ready to go
             if(e.player.isQuester()) {
                 e.player.getData()
-                PacketHandler.scanVisibleEntites(e.player, e.player.location)
+                PacketHandler.scanVisibleEntities(e.player, e.player.location)
             }
         }
 
@@ -162,22 +186,20 @@ class QuestEngine : JavaPlugin() {
         fun onLeave(e: PlayerQuitEvent) {
             println("Rm plr ${e.player.name}")
             DataManager.savePlayerData(e.player.uniqueId)
-            PacketHandler.removeAllEntites(e.player)
+            PacketHandler.removeAllEntities(e.player)
         }
 
         @EventHandler
         fun onWorldSave(e: WorldSaveEvent) {
-            println("Save all plr data")
-            // TODO: add use dirty alg
-            DataManager.playerData.forEach { uuid, _ -> DataManager.savePlayerData(uuid) }
+            DataManager.saveDirtyPlayers()
         }
 
         @EventHandler
         fun onClick(e: PlayerInteractEvent) {
-            val obj = e.player.getData().findQuest()?.findInteractObjective(e.clickedBlock.location)
+            val obj = e.player.getData().activeQuestObject()?.findInteractObjective(e.clickedBlock.location)
             if(obj != null) {
                 e.player.getData().completedObjectives.add(obj.id)
-                e.player.sendMessage("Objective completed!")
+                e.player.sendMessage("Objective Completed!")
             }
         }
     }

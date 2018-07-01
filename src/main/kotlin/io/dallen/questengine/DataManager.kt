@@ -4,11 +4,17 @@ import kotlinx.serialization.*
 import kotlinx.serialization.Optional
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
+import org.bukkit.Bukkit
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.entity.Player
 import java.io.File
 import java.util.*
+import java.io.FileOutputStream
+import java.net.URL
+import java.nio.channels.Channels
+
 
 object DataManager {
 
@@ -29,10 +35,10 @@ object DataManager {
     }
 
     @Serializable
-    data class QuestPreReq(val id: Int, @Optional val timeout: Int = 0)
+    data class QuestPreReq(val id: Int, @Optional val timeout: Int = 0, @Optional val withError: String = "")
 
     @Serializable
-    data class QuestObjectiveParameters(@Optional val location: SimpleLocation? = null)
+    data class QuestObjectiveParameters(@Optional val location: SimpleLocation? = null, @Optional val visibleBefore: Boolean = true)
 
     @Serializable
     data class QuestObjective(val id: Int, val type: String, val info: String, val parameters: QuestObjectiveParameters,
@@ -48,6 +54,12 @@ object DataManager {
             return objectives.first {
                 obj -> obj.type == "interact" && obj.parameters.location!!.toBukkit(loc.world) == loc
             }
+        }
+
+        fun getFakeStates(world: World): List<Pair<Location, Material>> = objectives.filter {
+            obj -> obj.parameters.location != null && !obj.parameters.visibleBefore
+        }.map {
+            obj -> Pair(obj.parameters.location!!.toBukkit(world), Material.AIR)
         }
     }
 
@@ -124,13 +136,57 @@ object DataManager {
         }
     }
 
+    class PlayerData(val uuid: String, questing: Boolean, activeQuest: Int = -1,
+                     val completedObjectives: MutableList<Int> = mutableListOf(),
+                     val completedQuests: MutableList<Int> = mutableListOf(),
+                     lastLocation: SimpleLocation? = null,
+                     dirty: Boolean = false) {
+
+        var questing = questing
+            set(value) {
+                field = value
+                dirty = true
+                if(value) {
+                    val fs = questDirectory[activeQuest]!!.getFakeStates(getPlayer().world)
+                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
+                } else {
+                    PacketHandler.removeFakeStates(UUID.fromString(uuid))
+                }
+            }
+
+        var activeQuest = activeQuest
+            set(value) {
+                PacketHandler.removeFakeStates(UUID.fromString(uuid))
+                field = value
+                dirty = true
+                if(value != -1) {
+                    val fs = questDirectory[value]!!.getFakeStates(getPlayer().world)
+                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
+                }
+            }
+
+        var lastLocation = lastLocation
+            set(value) {
+                field = value
+                dirty = true
+            }
+
+        var dirty = dirty
+
+        fun activeQuestObject() = questDirectory[activeQuest]
+
+        fun getPlayer() = Bukkit.getPlayer(UUID.fromString(uuid))!!
+
+        fun toRaw() = RawPlayerData(uuid, questing, activeQuest, completedObjectives, completedQuests, lastLocation)
+
+    }
+
     @Serializable
-    data class PlayerData(val uuid: String, var questing: Boolean, var activeQuest: Int = -1,
-                          val completedObjectives: MutableList<Int> = mutableListOf(),
-                          val completedQuests: MutableList<Int> = mutableListOf(),
-                          var lastLocation: SimpleLocation? = null,
-                          @Transient var dirty: Boolean = false) {
-        fun findQuest() = questDirectory[activeQuest]
+    data class RawPlayerData(val uuid: String, val questing: Boolean, val activeQuest: Int = -1,
+                             val completedObjectives: MutableList<Int> = mutableListOf(),
+                             val completedQuests: MutableList<Int> = mutableListOf(),
+                             val lastLocation: SimpleLocation? = null) {
+        fun toActual() = PlayerData(uuid, questing, activeQuest, completedObjectives, completedQuests, lastLocation)
     }
 
     val questDirectory: HashMap<Int, Quest> = HashMap()
@@ -180,7 +236,7 @@ object DataManager {
 
     fun loadPlayerData(uuid: UUID): PlayerData {
         val plrDataFile = getPlayerDataLocation(uuid)
-        val plrData = if(plrDataFile.exists()) JSON.parse(plrDataFile.readText())
+        val plrData = if(plrDataFile.exists()) JSON.parse<RawPlayerData>(plrDataFile.readText()).toActual()
                   else PlayerData(uuid.toString(), true)
         playerData[uuid] = plrData
         return plrData
@@ -188,7 +244,7 @@ object DataManager {
 
     fun savePlayerData(uuid: UUID) {
         val plrDataFile = getPlayerDataLocation(uuid)
-        plrDataFile.writeText(JSON.stringify(playerData[uuid]!!))
+        plrDataFile.writeText(JSON.stringify(playerData[uuid]!!.toRaw()))
     }
 
     fun loadAvailableSkins() {
@@ -204,5 +260,15 @@ object DataManager {
         val dbSavedSkin = dbSkin.map { s -> SavedSkinProp(s.name, s.value, s.signature) }
         val dbSavedSkinStr = JSON.indented.stringify(SavedSkin(name, dbSavedSkin))
         File("${QuestEngine.instance!!.dataFolder.path}/skins/$name.json").writeText(dbSavedSkinStr)
+    }
+
+    fun saveDirtyPlayers() {
+        playerData.filter { e -> e.value.dirty }.forEach { uuid, _ -> savePlayerData(uuid) }
+    }
+
+    fun loadFile(url: String, savePath: String) {
+        val rbc = Channels.newChannel(URL(url).openStream())
+        val fos = FileOutputStream(QuestEngine.instance!!.dataFolder.path + "/" + savePath)
+        fos.channel.transferFrom(rbc, 0, java.lang.Long.MAX_VALUE)
     }
 }

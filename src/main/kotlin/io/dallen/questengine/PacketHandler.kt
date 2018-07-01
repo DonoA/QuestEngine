@@ -40,9 +40,19 @@ object PacketHandler {
 
     val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
 
+    val fakeBlockStates: HashMap<UUID, List<Pair<Location, org.bukkit.Material>>> = HashMap()
+
+    fun registerFakeState(uuid: UUID, data: List<Pair<Location, org.bukkit.Material>>) {
+        fakeBlockStates[uuid] = data
+    }
+
+    fun removeFakeStates(uuid: UUID) {
+        fakeBlockStates.remove(uuid)
+    }
+
     fun registerNPC(name: String, location: Location, skinId: String?, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
-        val nmsServer = (Bukkit.getServer() as CraftServer).server
-        val nmsWorld = (QuestEngine.setting!! as CraftWorld).handle
+        val cbServer = (Bukkit.getServer() as CraftServer).server
+        val cbWorld = (QuestEngine.setting!! as CraftWorld).handle
         val uuid = UUID.randomUUID()
         val profile = WrappedGameProfile(uuid, name)
 
@@ -52,13 +62,13 @@ object PacketHandler {
             profile.properties.putAll("textures", skinProps)
         }
 
-        val npc = EntityPlayer(nmsServer, nmsWorld, profile.handle as GameProfile, PlayerInteractManager(nmsWorld))
+        val npc = EntityPlayer(cbServer, cbWorld, profile.handle as GameProfile, PlayerInteractManager(cbWorld))
         npc.setLocation(location.x, location.y, location.z, location.yaw, location.pitch)
         fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, visible, handler)
         return npc.id
     }
 
-    fun scanVisibleEntites(p: Player, loc: Location) {
+    fun scanVisibleEntities(p: Player, loc: Location) {
         // TODO: this is quite poorly optimized and should fixed at some point
         PacketHandler.fakePlayerHandles.forEach { id, npc ->
             // View distance for npcs is 45, could be changed if needed
@@ -70,7 +80,7 @@ object PacketHandler {
         }
     }
 
-    fun removeAllEntites(p: Player) {
+    fun removeAllEntities(p: Player) {
         renderedFakePlayers.forEach { _, npcs ->
             npcs.toMutableSet().forEach { npcId ->
                 tryRemoveRenderedPlayerEntity(p, npcId)
@@ -132,18 +142,17 @@ object PacketHandler {
         }
 
         QuestEngine.protocolManager!!.addPacketListener(playerInteractAdapter)
-
     }
 
     fun stealSkin(name: String): Array<WrappedSignedProperty> {
         var profile = WrappedGameProfile.fromOfflinePlayer(Bukkit.getOfflinePlayer(name))
-        val nmsServer = (Bukkit.getServer() as CraftServer).server
-        val sessions: MinecraftSessionService = nmsServer.javaClass.methods.first {
+        val cbServer = (Bukkit.getServer() as CraftServer).server
+        val cbSessions: MinecraftSessionService = cbServer.javaClass.methods.first {
             m-> m.returnType.simpleName.equals("MinecraftSessionService", true)}
-                .invoke(nmsServer) as MinecraftSessionService
+                .invoke(cbServer) as MinecraftSessionService
         val handle = profile.handle as GameProfile
         try {
-            sessions.fillProfileProperties(handle, true)
+            cbSessions.fillProfileProperties(handle, true)
         } catch(e: Exception) {
             println("Could not fill skin request!")
             e.printStackTrace()
