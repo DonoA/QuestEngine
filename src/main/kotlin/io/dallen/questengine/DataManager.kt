@@ -26,7 +26,7 @@ object DataManager {
 
     @Serializable
     data class SimpleLocation(val x: Double, val y: Double, val z: Double, val pitch: Float = 0f, val yaw: Float = 0f) {
-        fun toBukkit(world: World): Location = Location(world, x, y, z, pitch, yaw)
+        fun toBukkit(world: World): Location = Location(world, x, y, z, yaw, pitch)
 
         companion object {
             fun fromSimpleBukkit(loc: Location) = SimpleLocation(loc.x, loc.y, loc.z)
@@ -266,9 +266,14 @@ object DataManager {
         playerData.filter { e -> e.value.dirty }.forEach { uuid, _ -> savePlayerData(uuid) }
     }
 
-    fun loadFile(url: String, savePath: String) {
+    fun loadFile(url: String, savePath: String): Boolean {
+        if(savePath.contains("..")) {
+            println("Player attempted to download file above quest dir!!")
+            return false
+        }
         val rbc = Channels.newChannel(URL(url).openStream())
         val fos = FileOutputStream(QuestEngine.instance!!.dataFolder.path + "/" + savePath)
         fos.channel.transferFrom(rbc, 0, java.lang.Long.MAX_VALUE)
+        return true
     }
 }

@@ -27,7 +27,7 @@ object ChatMenuController {
 
     fun handleClick(uuid: UUID, id: Int) {
         val menu = openMenus.remove(uuid)
-        menu?.handler?.invoke(id, menu?.options!![id])
+        menu?.handler?.invoke(id, menu.options[id])
     }
 
     data class ChatMenuOption(val name: String, val color: ChatColor)

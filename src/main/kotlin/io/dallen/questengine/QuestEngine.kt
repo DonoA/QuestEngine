@@ -1,7 +1,13 @@
 package io.dallen.questengine
 
+import com.comphenix.protocol.PacketType
 import com.comphenix.protocol.ProtocolLibrary
 import com.comphenix.protocol.ProtocolManager
+import com.comphenix.protocol.events.PacketContainer
+import com.comphenix.protocol.reflect.accessors.Accessors
+import com.comphenix.protocol.utility.MinecraftReflection
+import com.comphenix.protocol.wrappers.EnumWrappers
+import com.comphenix.protocol.wrappers.PlayerInfoData
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
@@ -9,6 +15,7 @@ import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
 import kotlinx.serialization.json.JSON
 import net.md_5.bungee.api.ChatColor
+import net.minecraft.server.v1_12_R1.PacketPlayOutEntity
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.World
@@ -20,6 +27,12 @@ import java.util.*
 
 
 class QuestEngine : JavaPlugin() {
+
+    // add head pos, maybe a look at me thing
+    // remove player from player list
+
+    // Remove need to duplicate npcs in same location
+    // Fix fake block system NPE
 
     companion object {
         var instance: QuestEngine? = null
@@ -130,7 +143,7 @@ class QuestEngine : JavaPlugin() {
                     ChatMenuController.handleClick(UUID.fromString(args[1]), args[2].toInt())
                 }
                 "loc" -> {
-                    val l = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
+                    val l = DataManager.SimpleLocation.fromFullBukkit(player.location)
                     println("Player at: ${JSON.indented.stringify(l)}")
                     val tb = player.getTargetBlock(mutableSetOf(Material.AIR), 5)
                     if(tb != null) {
@@ -147,6 +160,9 @@ class QuestEngine : JavaPlugin() {
                     DataManager.questDirectory.forEach {
                         _, q -> println(JSON.indented.stringify(q))
                     }
+                    DataManager.skinDirectory.forEach {
+                        id, savedSkin -> println("$id saved as ${JSON.indented.stringify(savedSkin)}")
+                    }
                 }
                 "saveskin" -> {
                     if(!player.hasPermission(PermissionManager.adminPermission)) return false
@@ -154,8 +170,24 @@ class QuestEngine : JavaPlugin() {
                 }
                 "loaddata" -> {
                     if(!player.hasPermission(PermissionManager.adminPermission)) return false
-                    DataManager.loadFile(args[1], args[2])
-                    player.sendMessage("${ChatColor.GREEN}Saved to ${args[2]}!")
+                    if(DataManager.loadFile(args[1], args[2])){
+                        player.sendMessage("${ChatColor.GREEN}Saved to ${args[2]}!")
+                    } else {
+                        player.sendMessage("${ChatColor.RED}Not saved, bad location!")
+                    }
+                }
+                "setpitchyaw" -> {
+                    PacketHandler.fakePlayerHandles.forEach { id, fakePlayerEntity ->
+                        fakePlayerEntity.location.pitch = args[1].toFloat()
+                        fakePlayerEntity.location.yaw = args[2].toFloat()
+                        fakePlayerEntity.handle.setLocation(
+                                fakePlayerEntity.location.x,
+                                fakePlayerEntity.location.y,
+                                fakePlayerEntity.location.z,
+                                fakePlayerEntity.location.pitch,
+                                fakePlayerEntity.location.yaw
+                        )
+                    }
                 }
                 else -> return false
             }
@@ -197,7 +229,10 @@ class QuestEngine : JavaPlugin() {
         @EventHandler
         fun onClick(e: PlayerInteractEvent) {
             val obj = e.player.getData().activeQuestObject()?.findInteractObjective(e.clickedBlock.location)
-            if(obj != null) {
+            if(obj != null && !e.player.getData().completedObjectives.contains(obj.id)) {
+                if(e.isBlockInHand) {
+                    e.isCancelled = true
+                }
                 e.player.getData().completedObjectives.add(obj.id)
                 e.player.sendMessage("Objective Completed!")
             }

@@ -9,6 +9,7 @@ import com.comphenix.protocol.events.PacketContainer
 import com.comphenix.protocol.events.PacketEvent
 import com.comphenix.protocol.PacketType
 import com.comphenix.protocol.events.PacketAdapter
+import com.comphenix.protocol.wrappers.WrappedDataWatcher
 import com.comphenix.protocol.wrappers.WrappedGameProfile
 import com.comphenix.protocol.wrappers.WrappedSignedProperty
 import org.bukkit.event.player.PlayerInteractEntityEvent
@@ -63,7 +64,8 @@ object PacketHandler {
         }
 
         val npc = EntityPlayer(cbServer, cbWorld, profile.handle as GameProfile, PlayerInteractManager(cbWorld))
-        npc.setLocation(location.x, location.y, location.z, location.yaw, location.pitch)
+        npc.bukkitEntity.setAI(false)
+        npc.setPositionRotation(location.x, location.y, location.z, location.yaw, location.pitch)
         fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, visible, handler)
         return npc.id
     }
@@ -97,10 +99,14 @@ object PacketHandler {
 
     fun spawnPlayerEntity(p: Player, id: Int) {
         val connection = (p as CraftPlayer).handle.playerConnection
-        val npc = fakePlayerHandles[id]?.handle ?: return
+        val fakePlayer = fakePlayerHandles[id] ?: return
+        val npc = fakePlayer.handle
 
         connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, npc))
         connection.sendPacket(PacketPlayOutNamedEntitySpawn(npc))
+        PacketHandler.sendFakeHeadRotation(p, id, fakePlayer.location.yaw)
+
+//        connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
     }
 
     fun tryRemoveRenderedPlayerEntity(p: Player, id: Int) {
@@ -118,6 +124,25 @@ object PacketHandler {
         connection.sendPacket(PacketPlayOutEntityDestroy(npc.id))
     }
 
+    fun sendFakePlayerRelLook(player: Player, id: Int, pitch: Float, yaw: Float) {
+        val packet = PacketContainer(PacketType.Play.Server.REL_ENTITY_MOVE_LOOK)
+        packet.integers.write(0, id) // Entity id
+        packet.integers.write(1, 0) // Dx
+        packet.integers.write(2, 0) // Dy
+        packet.integers.write(3, 0) // Dz
+        packet.bytes.write(0, (yaw * 256.0F / 360.0F).toByte()) // Yaw
+        packet.bytes.write(1, (pitch * 256.0F / 360.0F).toByte()) // Pitch
+        packet.booleans.write(0, true)
+        QuestEngine.protocolManager!!.sendServerPacket(player, packet)
+    }
+
+    fun sendFakeHeadRotation(p: Player, id: Int, yaw: Float) {
+        val packet = PacketContainer(PacketType.Play.Server.ENTITY_HEAD_ROTATION)
+        packet.integers.write(0, id) // Entity id
+        packet.bytes.write(0, (yaw * 256.0F / 360.0F).toByte()) // Yaw
+        QuestEngine.protocolManager!!.sendServerPacket(p, packet)
+    }
+
     fun registerAll() {
         val playerInteractAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Client.USE_ENTITY) {
             override fun onPacketReceiving(event: PacketEvent?) {
@@ -133,11 +158,11 @@ object PacketHandler {
                 }
                 val container = event.packet as PacketContainer
                 val id = container.integers.read(0)
-                val target: Entity = PacketHandler.fakePlayerHandles[id]!!.handle.bukkitEntity
 
-                val ev = PlayerInteractEntityEvent(event.player, target)
-                fakePlayerHandles[id]!!.interactEvent.invoke(ev)
-
+                PacketHandler.fakePlayerHandles[id]?.let {
+                    val ev = PlayerInteractEntityEvent(event.player, it.handle.bukkitEntity)
+                    it.interactEvent.invoke(ev)
+                }
             }
         }
 
