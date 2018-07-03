@@ -29,7 +29,6 @@ import java.util.*
 class QuestEngine : JavaPlugin() {
 
     // add head pos, maybe a look at me thing
-    // remove player from player list
 
     // Remove need to duplicate npcs in same location
     // Fix fake block system NPE
@@ -180,13 +179,13 @@ class QuestEngine : JavaPlugin() {
                     PacketHandler.fakePlayerHandles.forEach { id, fakePlayerEntity ->
                         fakePlayerEntity.location.pitch = args[1].toFloat()
                         fakePlayerEntity.location.yaw = args[2].toFloat()
-                        fakePlayerEntity.handle.setLocation(
-                                fakePlayerEntity.location.x,
-                                fakePlayerEntity.location.y,
-                                fakePlayerEntity.location.z,
-                                fakePlayerEntity.location.pitch,
-                                fakePlayerEntity.location.yaw
-                        )
+//                        fakePlayerEntity.handle.setLocation(
+//                                fakePlayerEntity.location.x,
+//                                fakePlayerEntity.location.y,
+//                                fakePlayerEntity.location.z,
+//                                fakePlayerEntity.location.pitch,
+//                                fakePlayerEntity.location.yaw
+//                        )
                     }
                 }
                 else -> return false

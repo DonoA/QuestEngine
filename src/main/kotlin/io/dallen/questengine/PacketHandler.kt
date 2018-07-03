@@ -9,9 +9,9 @@ import com.comphenix.protocol.events.PacketContainer
 import com.comphenix.protocol.events.PacketEvent
 import com.comphenix.protocol.PacketType
 import com.comphenix.protocol.events.PacketAdapter
-import com.comphenix.protocol.wrappers.WrappedDataWatcher
-import com.comphenix.protocol.wrappers.WrappedGameProfile
-import com.comphenix.protocol.wrappers.WrappedSignedProperty
+import com.comphenix.protocol.reflect.accessors.Accessors
+import com.comphenix.protocol.utility.MinecraftReflection
+import com.comphenix.protocol.wrappers.*
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import java.util.UUID
 import org.bukkit.Bukkit
@@ -32,7 +32,7 @@ object PacketHandler {
     // requires extensive byte encoding to create the needed Entity watcher object that CBS creates for us
 
     data class FakePlayerEntity(val location: Location, val name: String, val uuid: UUID, val id: Int,
-                                val handle: EntityPlayer, val visible: (Player) -> Boolean,
+                                val handle: EntityPlayer, val profile: WrappedGameProfile, val visible: (Player) -> Boolean,
                                 val interactEvent: (PlayerInteractEntityEvent) -> Unit)
 
     val fakePlayerHandles: HashMap<Int, FakePlayerEntity> = HashMap()
@@ -65,9 +65,16 @@ object PacketHandler {
 
         val npc = EntityPlayer(cbServer, cbWorld, profile.handle as GameProfile, PlayerInteractManager(cbWorld))
         npc.bukkitEntity.setAI(false)
+        npc.bukkitEntity.isCustomNameVisible = false
         npc.setPositionRotation(location.x, location.y, location.z, location.yaw, location.pitch)
-        fakePlayerHandles[npc.id] = FakePlayerEntity(location, name, uuid, npc.id, npc, visible, handler)
-        return npc.id
+//        val idAccess = Accessors.getFieldAccessor(MinecraftReflection.getEntityClass(), "entityCount", true)!!
+
+        val id = npc.id//idAccess.get(null) as Int
+
+        fakePlayerHandles[id] = FakePlayerEntity(location, name, uuid, id, npc, profile, visible, handler)
+
+//        idAccess.set(null, id + 1)
+        return id
     }
 
     fun scanVisibleEntities(p: Player, loc: Location) {
@@ -105,8 +112,9 @@ object PacketHandler {
         connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, npc))
         connection.sendPacket(PacketPlayOutNamedEntitySpawn(npc))
         PacketHandler.sendFakeHeadRotation(p, id, fakePlayer.location.yaw)
-
-//        connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
+        Bukkit.getScheduler().runTaskLater(QuestEngine.instance, {
+            connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
+        }, 5)
     }
 
     fun tryRemoveRenderedPlayerEntity(p: Player, id: Int) {
@@ -120,20 +128,28 @@ object PacketHandler {
         val connection = (p as CraftPlayer).handle.playerConnection
         val npc = fakePlayerHandles[id]?.handle ?: return
 
-        connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
+//        connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
         connection.sendPacket(PacketPlayOutEntityDestroy(npc.id))
     }
 
-    fun sendFakePlayerRelLook(player: Player, id: Int, pitch: Float, yaw: Float) {
-        val packet = PacketContainer(PacketType.Play.Server.REL_ENTITY_MOVE_LOOK)
-        packet.integers.write(0, id) // Entity id
-        packet.integers.write(1, 0) // Dx
-        packet.integers.write(2, 0) // Dy
-        packet.integers.write(3, 0) // Dz
-        packet.bytes.write(0, (yaw * 256.0F / 360.0F).toByte()) // Yaw
-        packet.bytes.write(1, (pitch * 256.0F / 360.0F).toByte()) // Pitch
-        packet.booleans.write(0, true)
-        QuestEngine.protocolManager!!.sendServerPacket(player, packet)
+    fun sendFakePlayerInfoAdd(p: Player, fakePlayer: FakePlayerEntity) {
+        val packet = PacketContainer(PacketType.Play.Server.PLAYER_INFO)
+        packet.playerInfoAction.write(0, EnumWrappers.PlayerInfoAction.ADD_PLAYER)
+        packet.playerInfoDataLists.write(0, listOf(PlayerInfoData(fakePlayer.profile, 0, EnumWrappers.NativeGameMode.CREATIVE, WrappedChatComponent.fromText(fakePlayer.name))))
+        QuestEngine.protocolManager!!.sendServerPacket(p, packet)
+    }
+
+    fun sendFakePlayerSpawn(p: Player, fakePlayer: FakePlayerEntity) {
+        val packet = PacketContainer(PacketType.Play.Server.NAMED_ENTITY_SPAWN)
+        packet.integers.write(0, fakePlayer.id)
+        packet.uuiDs.write(0, fakePlayer.uuid)
+        packet.doubles.write(0, fakePlayer.location.x)
+        packet.doubles.write(1, fakePlayer.location.y)
+        packet.doubles.write(2, fakePlayer.location.z)
+        packet.bytes.write(0, (fakePlayer.location.yaw * 256.0F / 360.0F).toByte())
+        packet.bytes.write(0, (fakePlayer.location.pitch * 256.0F / 360.0F).toByte())
+        packet.dataWatcherModifier.write(0, WrappedDataWatcher(fakePlayer.handle.dataWatcher))
+        QuestEngine.protocolManager!!.sendServerPacket(p, packet)
     }
 
     fun sendFakeHeadRotation(p: Player, id: Int, yaw: Float) {
@@ -160,12 +176,26 @@ object PacketHandler {
                 val id = container.integers.read(0)
 
                 PacketHandler.fakePlayerHandles[id]?.let {
-                    val ev = PlayerInteractEntityEvent(event.player, it.handle.bukkitEntity)
+                    val ev = PlayerInteractEntityEvent(event.player, null)
                     it.interactEvent.invoke(ev)
                 }
             }
         }
 
+        val listPacketAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Server.PLAYER_INFO) {
+            override fun onPacketSending(event: PacketEvent?) {
+                println("sending info packet")
+            }
+        }
+
+        val spawnPacketAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Server.NAMED_ENTITY_SPAWN) {
+            override fun onPacketSending(event: PacketEvent?) {
+                println("sending spawn packet")
+            }
+        }
+
+        QuestEngine.protocolManager!!.addPacketListener(spawnPacketAdapter)
+        QuestEngine.protocolManager!!.addPacketListener(listPacketAdapter)
         QuestEngine.protocolManager!!.addPacketListener(playerInteractAdapter)
     }
 
