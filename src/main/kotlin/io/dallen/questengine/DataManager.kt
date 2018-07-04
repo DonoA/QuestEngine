@@ -46,12 +46,20 @@ object DataManager {
         fun createMessage(): String {
             return "$type, $info"
         }
+
+        fun hasCompletedPrereq(pd: PlayerData): Boolean {
+            var completedObj = false
+            preReq.forEach {
+                if(!pd.completedObjectives.contains(it.id)) completedObj = false
+            }
+            return completedObj
+        }
     }
 
     @Serializable
     data class Quest(val id: Int, val title: String, val objectives: List<QuestObjective>) {
-        fun findInteractObjective(loc: Location): QuestObjective {
-            return objectives.first {
+        fun findInteractObjective(loc: Location): QuestObjective? {
+            return objectives.firstOrNull {
                 obj -> obj.type == "interact" && obj.parameters.location!!.toBukkit(loc.world) == loc
             }
         }
@@ -146,23 +154,12 @@ object DataManager {
             set(value) {
                 field = value
                 dirty = true
-//                if(value) {
-//                    val fs = questDirectory[activeQuest]!!.getFakeStates(getPlayer().world)
-//                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
-//                } else {
-//                    PacketHandler.removeFakeStates(UUID.fromString(uuid))
-//                }
             }
 
         var activeQuest = activeQuest
             set(value) {
-                PacketHandler.removeFakeStates(UUID.fromString(uuid))
                 field = value
                 dirty = true
-//                if(value != -1) {
-//                    val fs = questDirectory[value]!!.getFakeStates(getPlayer().world)
-//                    PacketHandler.registerFakeState(UUID.fromString(uuid), fs)
-//                }
             }
 
         var lastLocation = lastLocation

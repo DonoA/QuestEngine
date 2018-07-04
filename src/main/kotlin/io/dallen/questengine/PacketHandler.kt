@@ -1,7 +1,6 @@
 package io.dallen.questengine
 
 import org.bukkit.entity.Player
-import org.bukkit.entity.Entity
 import org.bukkit.Location
 
 import java.util.*
@@ -9,8 +8,6 @@ import com.comphenix.protocol.events.PacketContainer
 import com.comphenix.protocol.events.PacketEvent
 import com.comphenix.protocol.PacketType
 import com.comphenix.protocol.events.PacketAdapter
-import com.comphenix.protocol.reflect.accessors.Accessors
-import com.comphenix.protocol.utility.MinecraftReflection
 import com.comphenix.protocol.wrappers.*
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import java.util.UUID
@@ -29,7 +26,7 @@ object PacketHandler {
 
     // Despite the disgusting mix of NMS, OBC, and protocol lib seen in this file, I think this is the easiest way
     // to accomplish what we want. NMS and OBC would require channel injection to sample packets while Protocol lib
-    // requires extensive byte encoding to create the needed Entity watcher object that CBS creates for us
+    // requires extensive byte encoding to create the needed Entity watcher object that NMS creates for us
 
     data class FakePlayerEntity(val location: Location, val name: String, val uuid: UUID, val id: Int,
                                 val handle: EntityPlayer, val profile: WrappedGameProfile, val visible: (Player) -> Boolean,
@@ -40,16 +37,6 @@ object PacketHandler {
     val fakePlayerInteractCooldown: HashMap<UUID, Long> = HashMap()
 
     val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
-
-    val fakeBlockStates: HashMap<UUID, List<Pair<Location, org.bukkit.Material>>> = HashMap()
-
-    fun registerFakeState(uuid: UUID, data: List<Pair<Location, org.bukkit.Material>>) {
-        fakeBlockStates[uuid] = data
-    }
-
-    fun removeFakeStates(uuid: UUID) {
-        fakeBlockStates.remove(uuid)
-    }
 
     fun registerNPC(name: String, location: Location, skinId: String?, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
         val cbServer = (Bukkit.getServer() as CraftServer).server
@@ -67,13 +54,10 @@ object PacketHandler {
         npc.bukkitEntity.setAI(false)
         npc.bukkitEntity.isCustomNameVisible = false
         npc.setPositionRotation(location.x, location.y, location.z, location.yaw, location.pitch)
-//        val idAccess = Accessors.getFieldAccessor(MinecraftReflection.getEntityClass(), "entityCount", true)!!
-
-        val id = npc.id//idAccess.get(null) as Int
+        val id = npc.id
 
         fakePlayerHandles[id] = FakePlayerEntity(location, name, uuid, id, npc, profile, visible, handler)
 
-//        idAccess.set(null, id + 1)
         return id
     }
 
@@ -128,7 +112,6 @@ object PacketHandler {
         val connection = (p as CraftPlayer).handle.playerConnection
         val npc = fakePlayerHandles[id]?.handle ?: return
 
-//        connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, npc))
         connection.sendPacket(PacketPlayOutEntityDestroy(npc.id))
     }
 
@@ -182,20 +165,6 @@ object PacketHandler {
             }
         }
 
-        val listPacketAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Server.PLAYER_INFO) {
-            override fun onPacketSending(event: PacketEvent?) {
-                println("sending info packet")
-            }
-        }
-
-        val spawnPacketAdapter = object : PacketAdapter(QuestEngine.instance, PacketType.Play.Server.NAMED_ENTITY_SPAWN) {
-            override fun onPacketSending(event: PacketEvent?) {
-                println("sending spawn packet")
-            }
-        }
-
-        QuestEngine.protocolManager!!.addPacketListener(spawnPacketAdapter)
-        QuestEngine.protocolManager!!.addPacketListener(listPacketAdapter)
         QuestEngine.protocolManager!!.addPacketListener(playerInteractAdapter)
     }
 

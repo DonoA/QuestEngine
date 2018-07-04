@@ -28,8 +28,6 @@ import java.util.*
 
 class QuestEngine : JavaPlugin() {
 
-    // add head pos, maybe a look at me thing
-
     // Remove need to duplicate npcs in same location
     // Fix fake block system NPE
 
@@ -179,13 +177,6 @@ class QuestEngine : JavaPlugin() {
                     PacketHandler.fakePlayerHandles.forEach { id, fakePlayerEntity ->
                         fakePlayerEntity.location.pitch = args[1].toFloat()
                         fakePlayerEntity.location.yaw = args[2].toFloat()
-//                        fakePlayerEntity.handle.setLocation(
-//                                fakePlayerEntity.location.x,
-//                                fakePlayerEntity.location.y,
-//                                fakePlayerEntity.location.z,
-//                                fakePlayerEntity.location.pitch,
-//                                fakePlayerEntity.location.yaw
-//                        )
                     }
                 }
                 else -> return false
@@ -197,6 +188,7 @@ class QuestEngine : JavaPlugin() {
     object EventListener : Listener {
         @EventHandler
         fun onMove(e: PlayerMoveEvent) {
+            if(e.player.world == QuestEngine.setting) return
             if(e.to.distance(e.from) == 0.0) return
             if(!e.player.isQuester()) return
             PacketHandler.scanVisibleEntities(e.player, e.to)
@@ -228,10 +220,12 @@ class QuestEngine : JavaPlugin() {
         @EventHandler
         fun onClick(e: PlayerInteractEvent) {
             val obj = e.player.getData().activeQuestObject()?.findInteractObjective(e.clickedBlock.location)
-            if(obj != null && !e.player.getData().completedObjectives.contains(obj.id)) {
+            if(obj != null && !e.player.getData().completedObjectives.contains(obj.id) &&
+                    obj.hasCompletedPrereq(e.player.getData())) {
                 if(e.isBlockInHand) {
                     e.isCancelled = true
                 }
+
                 e.player.getData().completedObjectives.add(obj.id)
                 e.player.sendMessage("Objective Completed!")
             }
