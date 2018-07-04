@@ -188,7 +188,7 @@ class QuestEngine : JavaPlugin() {
     object EventListener : Listener {
         @EventHandler
         fun onMove(e: PlayerMoveEvent) {
-            if(e.player.world == QuestEngine.setting) return
+            if(e.player.world != QuestEngine.setting) return
             if(e.to.distance(e.from) == 0.0) return
             if(!e.player.isQuester()) return
             PacketHandler.scanVisibleEntities(e.player, e.to)
