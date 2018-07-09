@@ -11,7 +11,7 @@ fun <K, V> HashMap<K, V>.findOrCreate(key: K, value: V): V {
     return v
 }
 
-fun Player.getData(): DataManager.PlayerData {
+fun Player.getData(): PlayerData {
     var plrd = DataManager.playerData[this.uniqueId]
     if(plrd == null) {
         plrd = DataManager.loadPlayerData(this.uniqueId)

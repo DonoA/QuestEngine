@@ -73,7 +73,7 @@ class QuestEngine : JavaPlugin() {
                         player.teleport(player.getData().lastLocation!!.toBukkit(setting!!))
                         player.getData().lastLocation = null
                     }
-                    PacketHandler.scanVisibleEntities(player, player.location)
+                    NPCManager.scanVisibleEntities(player, player.location)
 
                     player.sendMessage("Quest mode active")
                 }
@@ -81,7 +81,7 @@ class QuestEngine : JavaPlugin() {
                     player.getData().questing = false
                     player.getData().lastLocation = DataManager.SimpleLocation.fromSimpleBukkit(player.location)
 
-                    PacketHandler.removeAllEntities(player)
+                    NPCManager.removeAllEntities(player)
                     player.sendMessage("Quest mode deactivate")
                 }
                 "current" -> {
@@ -116,8 +116,8 @@ class QuestEngine : JavaPlugin() {
                 }
                 "reload" -> {
                     if(!player.hasPermission(PermissionManager.adminPermission)) return false
-                    Bukkit.getOnlinePlayers().forEach { p -> PacketHandler.removeAllEntities(p) }
-                    PacketHandler.fakePlayerHandles.clear()
+                    Bukkit.getOnlinePlayers().forEach { p -> NPCManager.removeAllEntities(p) }
+                    NPCManager.fakePlayerHandles.clear()
 
                     DataManager.playerData.clear()
                     DataManager.npcsDirectory.clear()
@@ -174,7 +174,7 @@ class QuestEngine : JavaPlugin() {
                     }
                 }
                 "setpitchyaw" -> {
-                    PacketHandler.fakePlayerHandles.forEach { id, fakePlayerEntity ->
+                    NPCManager.fakePlayerHandles.forEach { id, fakePlayerEntity ->
                         fakePlayerEntity.location.pitch = args[1].toFloat()
                         fakePlayerEntity.location.yaw = args[2].toFloat()
                     }
@@ -191,7 +191,7 @@ class QuestEngine : JavaPlugin() {
             if(e.player.world != QuestEngine.setting) return
             if(e.to.distance(e.from) == 0.0) return
             if(!e.player.isQuester()) return
-            PacketHandler.scanVisibleEntities(e.player, e.to)
+            NPCManager.scanVisibleEntities(e.player, e.to)
         }
 
         @EventHandler
@@ -201,7 +201,7 @@ class QuestEngine : JavaPlugin() {
             // this ensures that the data will be ready to go
             if(e.player.isQuester()) {
                 e.player.getData()
-                PacketHandler.scanVisibleEntities(e.player, e.player.location)
+                NPCManager.scanVisibleEntities(e.player, e.player.location)
             }
         }
 
@@ -209,7 +209,7 @@ class QuestEngine : JavaPlugin() {
         fun onLeave(e: PlayerQuitEvent) {
             println("Rm plr ${e.player.name}")
             DataManager.savePlayerData(e.player.uniqueId)
-            PacketHandler.removeAllEntities(e.player)
+            NPCManager.removeAllEntities(e.player)
         }
 
         @EventHandler

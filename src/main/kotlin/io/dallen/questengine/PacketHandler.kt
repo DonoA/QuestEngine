@@ -32,20 +32,19 @@ object PacketHandler {
                                 val handle: EntityPlayer, val profile: WrappedGameProfile, val visible: (Player) -> Boolean,
                                 val interactEvent: (PlayerInteractEntityEvent) -> Unit)
 
-    val fakePlayerHandles: HashMap<Int, FakePlayerEntity> = HashMap()
-
     val fakePlayerInteractCooldown: HashMap<UUID, Long> = HashMap()
 
-    val renderedFakePlayers: HashMap<UUID, MutableSet<Int>> = HashMap()
 
-    fun registerNPC(name: String, location: Location, skinId: String?, visible: (Player) -> Boolean, handler: (PlayerInteractEntityEvent) -> Unit): Int {
+    fun registerNPC(name: String, location: Location, skinId: String?, visible: (Player) -> Boolean,
+                    handler: (PlayerInteractEntityEvent) -> Unit): FakePlayerEntity {
         val cbServer = (Bukkit.getServer() as CraftServer).server
         val cbWorld = (QuestEngine.setting!! as CraftWorld).handle
         val uuid = UUID.randomUUID()
         val profile = WrappedGameProfile(uuid, name)
 
         if(skinId != null) {
-            val skinProps = DataManager.skinDirectory[skinId]!!.props.map { skin -> WrappedSignedProperty(skin.name, skin.value, skin.sig) }
+            val skinProps = DataManager.skinDirectory[skinId]!!.props.map { skin -> WrappedSignedProperty(skin.name,
+                    skin.value, skin.sig) }
             profile.properties.removeAll("textures")
             profile.properties.putAll("textures", skinProps)
         }
@@ -56,41 +55,13 @@ object PacketHandler {
         npc.setPositionRotation(location.x, location.y, location.z, location.yaw, location.pitch)
         val id = npc.id
 
-        fakePlayerHandles[id] = FakePlayerEntity(location, name, uuid, id, npc, profile, visible, handler)
-
-        return id
+        return FakePlayerEntity(location, name, uuid, id, npc, profile, visible, handler)
     }
 
-    fun scanVisibleEntities(p: Player, loc: Location) {
-        // TODO: this is quite poorly optimized and should fixed at some point
-        PacketHandler.fakePlayerHandles.forEach { id, npc ->
-            // View distance for npcs is 45, could be changed if needed
-            if(npc.visible.invoke(p) && npc.location.distance(loc) < 45.0) {
-                PacketHandler.tryRenderPlayerEntity(p, id)
-            } else {
-                PacketHandler.tryRemoveRenderedPlayerEntity(p, id)
-            }
-        }
-    }
-
-    fun removeAllEntities(p: Player) {
-        renderedFakePlayers.forEach { _, npcs ->
-            npcs.toMutableSet().forEach { npcId ->
-                tryRemoveRenderedPlayerEntity(p, npcId)
-            }
-        }
-    }
-
-    fun tryRenderPlayerEntity(p: Player, id: Int) {
-        val l  = renderedFakePlayers.findOrCreate(p.uniqueId, mutableSetOf())
-        if(l.contains(id)) return
-        spawnPlayerEntity(p, id)
-        l.add(id)
-    }
 
     fun spawnPlayerEntity(p: Player, id: Int) {
         val connection = (p as CraftPlayer).handle.playerConnection
-        val fakePlayer = fakePlayerHandles[id] ?: return
+        val fakePlayer = NPCManager.fakePlayerHandles[id] ?: return
         val npc = fakePlayer.handle
 
         connection.sendPacket(PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, npc))
@@ -101,16 +72,9 @@ object PacketHandler {
         }, 5)
     }
 
-    fun tryRemoveRenderedPlayerEntity(p: Player, id: Int) {
-        val l  = renderedFakePlayers.findOrCreate(p.uniqueId, mutableSetOf())
-        if(!l.contains(id)) return
-        removePlayerEntity(p, id)
-        l.remove(id)
-    }
-
     fun removePlayerEntity(p: Player, id: Int) {
         val connection = (p as CraftPlayer).handle.playerConnection
-        val npc = fakePlayerHandles[id]?.handle ?: return
+        val npc = NPCManager.fakePlayerHandles[id]?.handle ?: return
 
         connection.sendPacket(PacketPlayOutEntityDestroy(npc.id))
     }
@@ -118,7 +82,8 @@ object PacketHandler {
     fun sendFakePlayerInfoAdd(p: Player, fakePlayer: FakePlayerEntity) {
         val packet = PacketContainer(PacketType.Play.Server.PLAYER_INFO)
         packet.playerInfoAction.write(0, EnumWrappers.PlayerInfoAction.ADD_PLAYER)
-        packet.playerInfoDataLists.write(0, listOf(PlayerInfoData(fakePlayer.profile, 0, EnumWrappers.NativeGameMode.CREATIVE, WrappedChatComponent.fromText(fakePlayer.name))))
+        packet.playerInfoDataLists.write(0, listOf(PlayerInfoData(fakePlayer.profile, 0,
+                EnumWrappers.NativeGameMode.CREATIVE, WrappedChatComponent.fromText(fakePlayer.name))))
         QuestEngine.protocolManager!!.sendServerPacket(p, packet)
     }
 
@@ -158,7 +123,7 @@ object PacketHandler {
                 val container = event.packet as PacketContainer
                 val id = container.integers.read(0)
 
-                PacketHandler.fakePlayerHandles[id]?.let {
+                NPCManager.fakePlayerHandles[id]?.let {
                     val ev = PlayerInteractEntityEvent(event.player, null)
                     it.interactEvent.invoke(ev)
                 }
